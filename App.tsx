@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { STEPS, TRANSLATIONS } from './constants';
 import { AppStep, ProductAnalysis, CompetitorData, StrategyConfig, MarketingScript, Language } from './types';
@@ -9,24 +8,46 @@ import { Step4Generation } from './components/Step4_Generation';
 import { Step5Preview } from './components/Step5_Preview';
 import { ChevronRight, Globe2, Languages } from 'lucide-react';
 
-// 新的连接器：通过 Netlify Function 访问 Gemini
+/**
+ * Connector: Accesses the Gemini AI via Netlify Functions
+ * This bridges the frontend to the secure backend environment variable
+ */
 const callGeminiBridge = async (prompt: string) => {
-  const response = await fetch('/.netlify/functions/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
-  });
-  if (!response.ok) throw new Error('AI 大脑连接失败');
-  const data = await response.json();
-  return data.text;
+  try {
+    const response = await fetch('/.netlify/functions/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `AI Brain connection failed (${response.status})`);
+    }
+
+    const data = await response.json();
+    
+    // Compatibility check for various AI response formats
+    const aiText = data.text || data.content || data.message || (typeof data === 'string' ? data : null);
+    
+    if (!aiText) {
+      throw new Error('AI returned an empty response');
+    }
+    
+    return aiText;
+  } catch (error: any) {
+    console.error("Bridge Error:", error);
+    throw error;
+  }
 };
+
 const App = () => {
   const [language, setLanguage] = useState<Language>('en');
   const [currentStep, setCurrentStep] = useState<AppStep>(AppStep.INPUT);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Data States
+  // Data States Management
   const [productData, setProductData] = useState<ProductAnalysis | null>(null);
   const [competitors, setCompetitors] = useState<CompetitorData[]>([]);
   const [generatedTones, setGeneratedTones] = useState<string[]>([]);
@@ -39,52 +60,53 @@ const App = () => {
     tone: 'Professional',
     videoStyle: 'TikTok UGC Style (Viral)',
     sceneCategory: 'Indoor',
-    selectedScenes: [], // Multi-select
+    selectedScenes: [],
     duration: '15s',
     aspectRatio: '9:16',
-    selectedAvatars: [], // Multi-select
+    selectedAvatars: [],
     customAvatars: [],
     uploadedScenes: []
   });
 
   const [scripts, setScripts] = useState<MarketingScript[]>([]);
   const [selectedScripts, setSelectedScripts] = useState<MarketingScript[]>([]);
-  
-  // Lifted Footage State to share between Generation(4) and Studio(5)
   const [uploadedFootage, setUploadedFootage] = useState<File[]>([]);
 
   const t = TRANSLATIONS[language];
 
-const handleProductAnalyze = async (input: string, image?: string) => {
+  /**
+   * Main logic for Step 1: Triggering AI Analysis
+   */
+  const handleProductAnalyze = async (input: string, image?: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      // 1. Send the input to your Netlify Cloud "Brain"
+      // 1. Prepare instructions for Gemini
       const aiPrompt = `Analyze this product: ${input}. 
       Return the output in ${language === 'zh' ? 'Chinese' : 'English'}. 
-      Focus on: Product Name, Category, Key Selling Points, and Target Audience.`;
+      Focus on: Product Name, Category, Key Selling Points, and Target Audience. 
+      Format: Professional and concise summary.`;
       
       const aiResponseText = await callGeminiBridge(aiPrompt);
       
-      // 2. Format the AI response into your application's data structure
-      // We use a safe mock here so your UI (Step 2) doesn't crash
+      // 2. Map AI result to application state to prevent Step 2 from crashing
       setProductData({
-        name: "AI Analyzed Product",
-        category: "E-commerce Item",
-        sellingPoints: [aiResponseText.substring(0, 200) + "..."],
-        targetAudience: "General Global Audience",
-        painPoints: ["General pain points solved by this product"]
+        name: input.substring(0, 25) + (input.length > 25 ? '...' : ''),
+        category: "E-commerce Product",
+        sellingPoints: [aiResponseText],
+        targetAudience: "Global Consumers",
+        painPoints: ["Analyzing consumer needs..."]
       } as any);
       
-      // 3. Set placeholder data for competitors and tones to enable the "Next" button
+      // 3. Fill default values to enable UI flow
       setCompetitors([]); 
       setGeneratedTones(["Professional", "Viral", "Humorous", "Luxury", "Storytelling"]);
       
-      // 4. Move to Step 2: Analysis
+      // 4. Navigate to Step 2
       setCurrentStep(AppStep.ANALYSIS);
     } catch (e: any) {
       console.error("Analysis Error:", e);
-      setError(e.message || "Failed to analyze product via Cloud Function");
+      setError(e.message || "Cloud Function Error: Check API Key in Netlify.");
     } finally {
       setIsLoading(false);
     }
@@ -95,13 +117,12 @@ const handleProductAnalyze = async (input: string, image?: string) => {
       setCurrentStep(AppStep.STRATEGY);
   };
 
-  // Step 3 now just moves to Step 4 without generating yet
   const handleStrategyNext = () => {
       setCurrentStep(AppStep.GENERATION);
   };
 
   const handleRestart = () => {
-      if (window.confirm("Restart? All data will be lost.")) {
+      if (window.confirm("Restart? All unsaved data will be lost.")) {
           setProductData(null);
           setCompetitors([]);
           setScripts([]);
@@ -119,7 +140,7 @@ const handleProductAnalyze = async (input: string, image?: string) => {
 
   return (
     <div className="flex h-screen bg-[#0f172a] text-slate-100 font-sans selection:bg-blue-500/30">
-      {/* Sidebar */}
+      {/* Sidebar - Navigation */}
       <div className="w-20 lg:w-64 border-r border-slate-800 flex flex-col bg-[#0b1120]">
         <div className="p-6 flex items-center gap-3 text-blue-500 font-bold text-xl tracking-tighter cursor-pointer" onClick={handleRestart}>
           <Globe2 size={28} />
@@ -141,7 +162,7 @@ const handleProductAnalyze = async (input: string, image?: string) => {
       </div>
 
       <main className="flex-1 flex flex-col overflow-hidden relative">
-         {/* Top Bar */}
+         {/* Top Bar - Breadcrumbs and Language */}
          <header className="h-16 border-b border-slate-800 flex items-center justify-between px-8 z-10 bg-[#0f172a]/80 backdrop-blur-md">
             <div className="flex items-center gap-2 text-sm text-slate-400">
                 <span>Application</span>
@@ -156,14 +177,18 @@ const handleProductAnalyze = async (input: string, image?: string) => {
             </div>
          </header>
 
-         {/* Content */}
+         {/* Content Area - Core Logic Rendering */}
          <div className="flex-1 p-8 z-10 overflow-hidden">
-            {error && <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-6 py-3 rounded-lg z-50">{error} <button onClick={() => setError(null)} className="ml-2 underline">×</button></div>}
+            {error && (
+              <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-3 rounded-lg z-50 shadow-2xl flex items-center gap-4">
+                <span>{error}</span>
+                <button onClick={() => setError(null)} className="font-bold hover:scale-110">✕</button>
+              </div>
+            )}
             
             {currentStep === AppStep.INPUT && <Step1Input onAnalyze={handleProductAnalyze} isLoading={isLoading} lang={language} />}
             {currentStep === AppStep.ANALYSIS && productData && <Step2Analysis product={productData} competitors={competitors} onNext={handleAnalysisNext} onBack={() => setCurrentStep(AppStep.INPUT)} onRestart={handleRestart} lang={language} />}
             {currentStep === AppStep.STRATEGY && <Step3Strategy config={strategyConfig} setConfig={setStrategyConfig} generatedTones={generatedTones} onGenerate={handleStrategyNext} isGenerating={false} onBack={() => setCurrentStep(AppStep.ANALYSIS)} onRestart={handleRestart} lang={language} />}
-            {/* Step 4 now receives data to perform generation internally */}
             {currentStep === AppStep.GENERATION && productData && <Step4Generation 
                 scripts={scripts} 
                 setScripts={setScripts}
@@ -173,7 +198,6 @@ const handleProductAnalyze = async (input: string, image?: string) => {
                 onBack={() => setCurrentStep(AppStep.STRATEGY)} 
                 onRestart={handleRestart} 
                 lang={language}
-                // Props for generation
                 productData={productData}
                 competitors={competitors}
                 strategyConfig={strategyConfig}
