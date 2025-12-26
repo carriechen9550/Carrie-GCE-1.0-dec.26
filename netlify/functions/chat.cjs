@@ -2,7 +2,8 @@ const { GoogleGenerativeAI } = require('@google/genai');
 
 /**
  * Netlify Function: chat
- * This handles POST requests from the frontend and communicates with Gemini AI
+ * This handles POST requests from the frontend and communicates with the Gemini AI model.
+ * The model name is managed via environment variables for easy future upgrades.
  */
 exports.handler = async (event, context) => {
   // 1. Only allow POST requests
@@ -14,10 +15,14 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // 2. Validate API Key
+    // 2. Load Configuration from Environment Variables
     const apiKey = process.env.GEMINI_API_KEY;
+    
+    // Default to 'gemini-1.5-pro' if no model is specified in Netlify settings
+    const modelName = process.env.GEMINI_MODEL_NAME || 'gemini-1.5-pro';
+
     if (!apiKey) {
-      console.error("Missing GEMINI_API_KEY in Environment Variables");
+      console.error("Configuration Error: GEMINI_API_KEY is missing.");
       return {
         statusCode: 500,
         body: JSON.stringify({ error: 'Server configuration error: Missing API Key.' }),
@@ -29,30 +34,40 @@ exports.handler = async (event, context) => {
     if (!prompt) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: 'No prompt provided in request body.' }),
+        body: JSON.stringify({ error: 'No prompt provided.' }),
       };
     }
 
-    // 4. Initialize Gemini AI (Model: gemini-1.5-flash)
+    // 4. Initialize Gemini AI with dynamic model selection
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ 
+      model: modelName,
+      generationConfig: {
+        temperature: 0.7,
+        topP: 0.95,
+        maxOutputTokens: 2048,
+      }
+    });
+
+    console.log(`Using model: ${modelName}`); // Helpful for debugging in Netlify logs
 
     // 5. Generate content
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
 
-    // 6. Return the successful response to the frontend
+    // 6. Return response
     return {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*', // Optional: Helps with cross-origin issues
       },
       body: JSON.stringify({ text: text }),
     };
 
   } catch (error) {
-    console.error("Gemini AI Error:", error);
+    console.error("AI Bridge Error:", error);
     
     return {
       statusCode: 500,
